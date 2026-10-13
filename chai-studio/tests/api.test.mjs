@@ -7,7 +7,7 @@ import {createApp} from '../server/app.mjs';
 
 async function setup(fetchImpl){const dir=await mkdtemp(join(tmpdir(),'muse-test-'));const app=createApp({dataDir:dir,fetchImpl,staticDir:join(dir,'no-build')});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const base=`http://127.0.0.1:${server.address().port}`;return{base,dir,close:async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));await rm(dir,{recursive:true});}};}
 const json=data=>({headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-const modelFixture=async(url,options)=>{if(url.endsWith('/api/tags'))return Response.json({models:[{name:'qwen2.5:1.5b'}]});const req=JSON.parse(options.body);assert.equal(req.messages.at(-1).role,'user');assert.match(req.messages[0].content,/fiktiv/);const encoder=new TextEncoder();return new Response(new ReadableStream({start(c){for(const token of ['Hej! ','Vad vill du upptäcka?'])c.enqueue(encoder.encode(JSON.stringify({message:{content:token},done:false})+'\n'));c.enqueue(encoder.encode(JSON.stringify({done:true})+'\n'));c.close();}}));};
+const modelFixture=async(url,options)=>{if(url.endsWith('/api/tags'))return Response.json({models:[{name:'qwen3:4b'}]});const req=JSON.parse(options.body);assert.equal(req.messages.at(-1).role,'user');assert.equal(req.think,false);assert.equal(req.model,'qwen3:4b');assert.match(req.messages[0].content,/fiktiv/);const encoder=new TextEncoder();return new Response(new ReadableStream({start(c){for(const token of ['Hej! ','Vad vill du upptäcka?'])c.enqueue(encoder.encode(JSON.stringify({message:{content:token},done:false})+'\n'));c.enqueue(encoder.encode(JSON.stringify({done:true})+'\n'));c.close();}}));};
 test('custom character, favorite, chat and messages persist across restarts',async()=>{
  const s=await setup(modelFixture);
  try{
@@ -38,4 +38,18 @@ test('stream ending without completion reports error and retains partial text ho
  const s=await setup(async()=>new Response(JSON.stringify({message:{content:'Ett avbrutet svar'}})+'\n'));
  try{const chat=await (await fetch(s.base+'/api/chats',{method:'POST',...json({characterId:'kai'})})).json();const r=await fetch(s.base+`/api/chats/${chat.id}/messages`,{method:'POST',...json({content:'Hej!'})});const body=await r.text();assert.match(body,/event: error/);assert.doesNotMatch(body,/event: done/);const fresh=await (await fetch(s.base+`/api/chats/${chat.id}`)).json();assert.equal(fresh.messages.at(-1).interrupted,true);}
  finally{await s.close();}
+});
+test('uploaded avatar becomes a persistent JPEG without embedded metadata',async()=>{
+ const {default:sharp}=await import('sharp');const s=await setup(modelFixture);
+ try{
+  const image=await sharp({create:{width:100,height:80,channels:3,background:'#bb88cc'}}).withMetadata().png().toBuffer();
+  const r=await fetch(s.base+'/api/avatars',{method:'POST',headers:{'Content-Type':'image/png'},body:image});assert.equal(r.status,201);const {avatarUrl}=await r.json();assert.match(avatarUrl,/^\/api\/avatars\/[0-9a-f-]+\.jpg$/);
+  const downloaded=await fetch(s.base+avatarUrl);assert.equal(downloaded.status,200);const bytes=Buffer.from(await downloaded.arrayBuffer());const metadata=await sharp(bytes).metadata();assert.equal(metadata.format,'jpeg');assert.equal(metadata.width,600);assert.equal(metadata.height,720);assert.equal(metadata.exif,undefined);
+  const body={name:'Photo Alex',tagline:'En avatar med eget foto',description:'En fiktiv karaktär med en egen bild.',personality:'Du är Alex.',greeting:'Hej!',category:'Vänner',color:'violet',avatar:'nova',avatarUrl};
+  const c=await(await fetch(s.base+'/api/characters',{method:'POST',...json(body)})).json();assert.equal(c.avatarUrl,avatarUrl);
+  const stored=JSON.parse(await readFile(join(s.dir,'data.json'),'utf8'));assert.equal(stored.characters[0].avatarUrl,avatarUrl);
+  assert.equal((await fetch(s.base+'/api/avatars',{method:'POST',headers:{'Content-Type':'image/svg+xml'},body:'<svg xmlns="http://www.w3.org/2000/svg"/>'})).status,415);
+  assert.equal((await fetch(s.base+'/api/characters',{method:'POST',...json({...body,avatarUrl:'https://example.com/avatar.jpg'})})).status,422);
+  await fetch(s.base+`/api/characters/${c.id}`,{method:'DELETE'});assert.equal((await fetch(s.base+avatarUrl)).status,404);
+ }finally{await s.close();}
 });

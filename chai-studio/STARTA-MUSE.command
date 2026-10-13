@@ -28,7 +28,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 export OLLAMA_HOST=127.0.0.1:11434
 export OLLAMA_NO_CLOUD=true
-export OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:1.5b}"
+export OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:4b}"
 if ! curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
   OLLAMA_MODELS="$PWD/.runtime/models" ollama serve > .runtime/ollama.log 2>&1 &
   muse_ai_pid=$!
@@ -38,13 +38,13 @@ if ! curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
   done
   if ! curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; then cat .runtime/ollama.log; exit 1; fi
 fi
-echo 'Första gången hämtas AI-modellen (ungefär 1 GB). Låt fönstret vara öppet.'
+echo 'Första gången hämtas AI-modellen. Standardmodellen Qwen3 4B tar cirka 2,6 GB. Låt fönstret vara öppet.'
 ollama pull "$OLLAMA_MODEL"
 npm ci
 npm run build
 echo 'Testar ett riktigt AI-svar innan appen öppnas…'
 node --input-type=module - <<'JS'
-const r=await fetch('http://127.0.0.1:11434/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(180000),body:JSON.stringify({model:process.env.OLLAMA_MODEL,stream:false,messages:[{role:'user',content:'Svara kort på svenska: säg hej.'}],options:{num_predict:32,temperature:0,num_ctx:2048}})});
+const r=await fetch('http://127.0.0.1:11434/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(180000),body:JSON.stringify({model:process.env.OLLAMA_MODEL,think:false,stream:false,messages:[{role:'user',content:'Svara kort på svenska: säg hej.'}],options:{num_predict:32,temperature:0,num_ctx:2048}})});
 const data=await r.json();
 if(!r.ok||!data.message?.content?.trim())throw Error('AI-modellen kunde inte ge ett svar. '+(data.error||'Se Terminal-texten ovan.'));
 console.log('AI-testet lyckades: modellen gav ett riktigt svar.');
