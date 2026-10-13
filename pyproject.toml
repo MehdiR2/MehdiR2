@@ -1,0 +1,24 @@
+[project]
+name = "frame-caption-studio"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi==0.143.0",
+  "uvicorn==0.54.0",
+  "python-multipart==0.0.32",
+  "faster-whisper==1.2.1",
+  "argostranslate==1.11.0",
+  "torch==2.14.1+cpu; sys_platform != 'darwin'",
+  "torch==2.2.2; sys_platform == 'darwin'",
+  "onnxruntime==1.19.2; sys_platform == 'darwin'",
+  "spacy==3.7.5; sys_platform == 'darwin'",
+  "numpy==1.26.4; sys_platform == 'darwin'",
+]
+[dependency-groups]
+dev = ["httpx==0.28.1", "pytest==9.1.1"]
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+[tool.uv.sources]
+torch = { index = "pytorch-cpu", marker = "sys_platform != 'darwin'" }
