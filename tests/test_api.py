@@ -2,12 +2,40 @@ import json
 import shutil
 import subprocess
 import time
+import hashlib
+from typing import get_args
 from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from backend import app as backend
 
 DEMO=Path(__file__).resolve().parents[1]/'.runtime/projects/11111111-1111-4111-8111-111111111111/source'
+
+def test_whisper_can_decode_uploaded_video_audio():
+    from faster_whisper.audio import decode_audio
+    import numpy as np
+    audio = decode_audio(str(DEMO), sampling_rate=16000)
+    assert audio.size > 16000
+    assert audio.dtype == np.float32
+    assert np.isfinite(audio).all() and np.max(np.abs(audio)) > .01
+
+def test_all_caption_presets_render_distinct_video_frames(tmp_path):
+    styles = get_args(backend.CaptionStyle.model_fields['preset'].annotation)
+    assert len(styles) >= 16
+    fingerprints = set()
+    for preset in styles:
+        project = {'width':720, 'height':1280,
+                   'style':backend.CaptionStyle(preset=preset).model_dump(),
+                   'segments':[{'start':0,'end':2,'text':'En berättelse för alla.'}]}
+        ass = tmp_path / f'{preset}.ass'
+        contents = backend.ass_subtitles(project)
+        assert 'frame' not in contents.lower()
+        ass.write_text(contents)
+        frame = subprocess.check_output(['ffmpeg','-v','error','-ss','0.5','-i',str(DEMO),
+                                         '-vf',f'ass={ass}','-frames:v','1','-f','rawvideo','-pix_fmt','rgb24','-'])
+        assert len(frame) == 720 * 1280 * 3
+        fingerprints.add(hashlib.sha256(frame).digest())
+    assert len(fingerprints) == len(styles)
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):

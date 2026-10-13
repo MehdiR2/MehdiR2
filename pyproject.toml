@@ -7,6 +7,7 @@ dependencies = [
   "uvicorn==0.54.0",
   "python-multipart==0.0.32",
   "faster-whisper==1.2.1",
+  "av==16.0.1",
   "argostranslate==1.11.0",
   "torch==2.14.1+cpu; sys_platform != 'darwin'",
   "torch==2.2.2; sys_platform == 'darwin'",

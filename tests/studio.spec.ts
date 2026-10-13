@@ -63,3 +63,23 @@ test('native file picker uploads a video that plays',async({page})=>{
   if(projectId&&/^[0-9a-f-]{36}$/.test(projectId))await rm(`.runtime/projects/${projectId}`,{recursive:true});
  }
 });
+test('sixteen caption styles are selectable without a video watermark',async({page,request})=>{
+ const original=await (await request.get(`/api/projects/${demo}`)).json();
+ try {
+  await page.goto('/');
+  await page.getByLabel('Visa alla projekt').click();
+  await page.getByRole('button',{name:/A change of perspective.mp4/}).click();
+  await expect(page.locator('.frame-watermark')).toHaveCount(0);
+  await page.getByRole('button',{name:'Stil',exact:true}).click();
+  await expect(page.locator('.style-option')).toHaveCount(16);
+  for(const name of ['Textplatta','Neon','Kontur','Pop','Elegant','Skrivmaskin','Editorial','Cinema','Comic','Soft glow','Accent label','Sport']) {
+   const option=page.getByRole('button',{name:`Din berättelse ${name}`,exact:true});
+   await option.click();
+   await expect(option).toHaveClass(/selected/);
+  }
+  await expect(page.locator('.caption-overlay')).toHaveClass(/sport/);
+  await page.getByRole('button',{name:'Spara',exact:true}).click();
+  await page.reload();
+  await expect(page.locator('.caption-overlay')).toHaveClass(/sport/);
+ } finally {await request.put(`/api/projects/${demo}`,{data:{segments:original.segments,style:original.style}});}
+});

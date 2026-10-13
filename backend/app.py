@@ -36,7 +36,7 @@ LOCK = threading.RLock()
 AI_LOCK = threading.Lock()
 MODEL = None
 MAX_UPLOAD = 500 * 1024 * 1024
-MEDIA_TOOL_DIRS = (Path('/opt/homebrew/bin'), Path('/usr/local/bin'))
+MEDIA_TOOL_DIRS = (Path('/opt/homebrew/opt/ffmpeg-full/bin'), Path('/usr/local/opt/ffmpeg-full/bin'), Path('/opt/homebrew/bin'), Path('/usr/local/bin'))
 
 class Segment(BaseModel):
     id: str
@@ -50,7 +50,7 @@ class Segment(BaseModel):
         return self
 
 class CaptionStyle(BaseModel):
-    preset: Literal['classic', 'highlight', 'minimal', 'bold'] = 'highlight'
+    preset: Literal['classic', 'highlight', 'minimal', 'bold', 'boxed', 'neon', 'outline', 'pop', 'serif', 'mono', 'editorial', 'cinema', 'comic', 'soft', 'label', 'sport'] = 'highlight'
     color: Literal['lime', 'white', 'yellow', 'pink'] = 'lime'
     position: Literal['bottom', 'center', 'top'] = 'bottom'
     size: int = Field(default=32, ge=16, le=64)
@@ -91,6 +91,11 @@ def save_project(project: dict):
 
 def media_binary(name: str) -> str | None:
     """Homebrew's bin directory may be absent from a manually started shell."""
+    if os.sys.platform == 'darwin':
+        for directory in MEDIA_TOOL_DIRS[:2]:
+            candidate = directory / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
     found = shutil.which(name)
     if found:
         return found
@@ -175,7 +180,7 @@ def new_job(project_id: str, operation):
             update_job(job_id, status='done', progress=100, message='Klart')
         except Exception as exc:
             log.exception('Caption job failed')
-            message = str(exc) if isinstance(exc, RuntimeError) else 'Bearbetningen misslyckades. Kontrollera anslutningen för modellhämtning och försök igen.'
+            message = str(exc) if isinstance(exc, RuntimeError) else f'Bearbetningen avbröts ({type(exc).__name__}). Kopiera feltexten från Terminal så kan orsaken felsökas.'
             update_job(job_id, status='error', message=message)
     threading.Thread(target=worker, daemon=True).start()
     return dict(JOBS[job_id])
@@ -203,11 +208,40 @@ def ass_subtitles(project):
     # Match preview size in a 360px-wide reference frame.
     size = style['size'] * width / 360
     colors = {'lime': '&H0075E3CC', 'white': '&H00FFFFFF', 'yellow': '&H0059DDFF', 'pink': '&H00CBA4FF'}
-    primary = colors[style['color']] if style['preset'] in ('highlight', 'bold') else '&H00FFFFFF'
+    accent = colors[style['color']]
+    preset = style['preset']
+    typography = {
+        'highlight': {},
+        'classic': {'primary': '&H00FFFFFF', 'box': 3, 'outline': 3, 'shadow': 0},
+        'minimal': {'primary': '&H00FFFFFF', 'bold': 0, 'outline': 0, 'shadow': 1},
+        'bold': {'uppercase': True, 'scale': 1.08},
+        'boxed': {'primary': '&H00FFFFFF', 'box': 3, 'outline': 7, 'shadow': 0},
+        'neon': {'stroke': accent, 'outline': 1.5, 'shadow': 3, 'back': accent},
+        'outline': {'primary': '&HFF000000', 'stroke': accent, 'outline': 1.2, 'shadow': 0},
+        'pop': {'primary': '&H00FFFFFF', 'stroke': accent, 'outline': 3, 'shadow': 2},
+        'serif': {'font': 'DejaVu Serif', 'primary': '&H00FFFFFF', 'bold': 0, 'outline': .5, 'shadow': 1},
+        'mono': {'font': 'DejaVu Sans Mono', 'primary': '&H00FFFFFF', 'bold': 0, 'scale': .85, 'box': 3, 'outline': 3, 'shadow': 0},
+        'editorial': {'font': 'DejaVu Serif', 'primary': '&H00FFFFFF', 'italic': -1, 'bold': 0, 'outline': .5, 'shadow': 1},
+        'cinema': {'primary': '&H00FFFFFF', 'bold': 0, 'spacing': 2, 'scale': .85, 'outline': 1, 'shadow': 1},
+        'comic': {'italic': -1, 'stroke': '&H00FFFFFF', 'outline': 2, 'shadow': 3},
+        'soft': {'outline': 0, 'shadow': 3, 'back': '&H80000000'},
+        'label': {'primary': '&H00181818', 'stroke': accent, 'back': accent, 'box': 3, 'outline': 5, 'shadow': 0},
+        'sport': {'uppercase': True, 'italic': -1, 'outline': 3, 'shadow': 2},
+    }[preset]
+    scale = width / 360
+    size *= typography.get('scale', 1)
+    primary = typography.get('primary', accent)
+    font = typography.get('font', 'DejaVu Sans')
+    stroke = typography.get('stroke', '&H00101010')
+    back = typography.get('back', '&H80000000')
+    border = typography.get('box', 1)
+    outline = typography.get('outline', 2) * scale
+    shadow = typography.get('shadow', 1) * scale
+    bold = typography.get('bold', -1)
+    italic = typography.get('italic', 0)
+    spacing = typography.get('spacing', 0) * scale
     alignment = {'bottom': 2, 'center': 5, 'top': 8}[style['position']]
     margin = round(height * .13)
-    outline = 0 if style['preset'] == 'minimal' else max(1, width / 360 * 2)
-    bold = 0 if style['preset'] == 'minimal' else -1
     header = f'''[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -215,7 +249,7 @@ PlayResY: {height}
 WrapStyle: 0
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,DejaVu Sans,{size},{primary},&H00FFFFFF,&H00101010,&H80000000,{bold},0,0,0,100,100,0,0,1,{outline},1,{alignment},{round(width*.06)},{round(width*.06)},{margin},1
+Style: Default,{font},{size},{primary},&H00FFFFFF,{stroke},{back},{bold},{italic},0,0,100,100,{spacing},0,{border},{outline},{shadow},{alignment},{round(width*.06)},{round(width*.06)},{margin},1
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 '''
@@ -228,7 +262,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     rows = []
     for s in project['segments']:
         text = s['text'].replace('\\', '＼').replace('{', '｛').replace('}', '｝').replace('\r', '').replace('\n', r'\N')
-        if style['preset'] == 'bold':
+        if typography.get('uppercase'):
             text = text.upper()
         rows.append(f'Dialogue: 0,{ass_time(s["start"])},{ass_time(s["end"])},Default,,0,0,0,,{text}')
     return header + '\n'.join(rows)

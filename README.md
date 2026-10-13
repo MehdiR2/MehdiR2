@@ -7,7 +7,7 @@ En Captions.ai-inspirerad videoeditor för uppladdning, lokala AI-undertexter,
 
 Ladda ned den senaste ZIP-filen, packa upp och dubbelklicka på
 `STARTA-MAC.command`. Den installerar Homebrew om det saknas (via den
-officiella installeraren), Node.js, uv och FFmpeg, installerar Python 3.12,
+officiella installeraren), Node.js, uv och FFmpeg, installerar Python 3.12 och FFmpeg Full med textningsstöd,
 bygger appen och öppnar webbläsaren automatiskt. Följ eventuella frågor från
 Homebrew. Låt terminalfönstret vara öppet; Ctrl+C stoppar appen.
 
@@ -107,5 +107,22 @@ spara nätverksändringarna och kör `scripts/verify_models.py` igen.
 
 Appen är en privat prototyp utan inloggning, projektisolering mellan användare
 eller automatiserad datarensning. Lägg till detta före publik drift. AI-text
-behöver alltid granskas. Stilvalen färgar hela undertextsegment; ordvis
+behöver alltid granskas. Det finns 16 caption-stilar med motsvarande videoexport: Spotlight, Klassisk,
+Minimal, Statement, Textplatta, Neon, Kontur, Pop, Elegant, Skrivmaskin,
+Editorial, Cinema, Comic, Soft glow, Accent label och Sport.
+Förhandsvisning och exporter lägger inte till någon vattenstämpel.
+Stilvalen färgar hela undertextsegment; ordvis
 karaoke och AI-avatarer ingår inte i denna version.
+
+## Fel med metadata_errors
+
+Whisper 1.2.1 använder en PyAV-funktion som saknas i PyAV 19. Appen låser nu
+PyAV till 16.0.1. Avkodning av en riktig video med Whisper har verifierats
+med denna version och täcks av ett regressionstest. Om du använder en äldre
+ZIP-version kan du stoppa appen och köra `uv add "av==16.0.1"` i appmappen.
+Använd `/opt/homebrew/bin/uv` om uv saknas i Terminal-sökvägen på Apple Silicon.
+
+`UPPDATERA-MAC.command` hämtar senaste appkoden från GitHub till den befintliga
+mappen och bevarar `.runtime` (videor, undertexter och modeller), `.venv` samt
+`node_modules`. Den ändrar appens källkod och startar sedan Mac-installationsfilen.
+Egna ändringar i appens källkod ska säkerhetskopieras före uppdateringen.

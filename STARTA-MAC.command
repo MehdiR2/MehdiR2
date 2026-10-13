@@ -31,7 +31,8 @@ if [[ -x /opt/homebrew/bin/brew ]]; then
 elif [[ -x /usr/local/bin/brew ]]; then
   eval "$(/usr/local/bin/brew shellenv)"
 fi
-brew install node uv ffmpeg
+brew install node uv ffmpeg-full
+export PATH="$(brew --prefix ffmpeg-full)/bin:$PATH"
 uv python install 3.12
 uv sync --frozen --python 3.12
 npm ci
