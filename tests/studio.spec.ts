@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+import {readFile, rm} from 'node:fs/promises';
 const demo='11111111-1111-4111-8111-111111111111';
 test('edit, persist, style and export real subtitles',async({page,request})=>{
  const original=await (await request.get(`/api/projects/${demo}`)).json();
@@ -41,4 +42,24 @@ test('upload error is visible and does not create a project',async({page})=>{
  await page.locator('input[type=file]').setInputFiles({name:'invalid.mp4',mimeType:'video/mp4',buffer:Buffer.from('not a video')});
  await expect(page.getByRole('alert')).toBeVisible();
  await expect(page.getByRole('button',{name:'Generera undertexter'})).toBeEnabled();
+});
+test('native file picker uploads a video that plays',async({page})=>{
+ let projectId:string|undefined;
+ try {
+  await page.goto('/');
+  await expect(page.getByRole('button',{name:/Släpp din video/})).toBeEnabled();
+  const chooserPromise=page.waitForEvent('filechooser');
+  await page.getByRole('button',{name:/Släpp din video/}).click();
+  const chooser=await chooserPromise;
+  const buffer=await readFile(`.runtime/projects/${demo}/source`);
+  await chooser.setFiles({name:'native-upload.mov',mimeType:'video/quicktime',buffer});
+  await expect(page.getByText('Videon är uppladdad. Välj språk och generera undertexter.')).toBeVisible();
+  const src=await page.locator('video').getAttribute('src');
+  projectId=src?.split('/')[3];
+  await expect(page.locator('.current-file strong')).toHaveText('native-upload.mov');
+  await page.getByRole('button',{name:'Spela',exact:true}).click();
+  await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeGreaterThan(.1);
+ } finally {
+  if(projectId&&/^[0-9a-f-]{36}$/.test(projectId))await rm(`.runtime/projects/${projectId}`,{recursive:true});
+ }
 });

@@ -36,6 +36,7 @@ LOCK = threading.RLock()
 AI_LOCK = threading.Lock()
 MODEL = None
 MAX_UPLOAD = 500 * 1024 * 1024
+MEDIA_TOOL_DIRS = (Path('/opt/homebrew/bin'), Path('/usr/local/bin'))
 
 class Segment(BaseModel):
     id: str
@@ -88,8 +89,22 @@ def save_project(project: dict):
         tmp.write_text(json.dumps(project, ensure_ascii=False))
         tmp.replace(path)
 
+def media_binary(name: str) -> str | None:
+    """Homebrew's bin directory may be absent from a manually started shell."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for directory in MEDIA_TOOL_DIRS:
+        candidate = directory / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
 def run_command(args: list[str], timeout=300):
-    p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    executable = media_binary(args[0])
+    if not executable:
+        raise RuntimeError('Videoverktyget saknas. Starta appen med STARTA-MAC.command så att FFmpeg hittas eller installeras.')
+    p = subprocess.run([executable, *args[1:]], capture_output=True, text=True, timeout=timeout)
     if p.returncode:
         log.error('Media command failed: %s', p.stderr[-2000:])
         raise RuntimeError('Videon kunde inte bearbetas. Kontrollera att filformatet stöds och att filen är hel.')
@@ -220,7 +235,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok', 'ffmpeg': bool(shutil.which('ffmpeg')), 'transcription': 'faster-whisper', 'translation': 'argos-local', 'model': os.getenv('WHISPER_MODEL', 'tiny')}
+    return {'status': 'ok', 'ffmpeg': bool(media_binary('ffmpeg')), 'ffprobe': bool(media_binary('ffprobe')), 'transcription': 'faster-whisper', 'translation': 'argos-local', 'model': os.getenv('WHISPER_MODEL', 'tiny')}
 
 @app.get('/api/projects')
 def projects():
@@ -264,7 +279,7 @@ async def upload(file: UploadFile = File(...)):
         save_project(project)
         # Normalize upload for reliable browser playback and remove container metadata.
         run_command(['ffmpeg', '-v', 'error', '-y', '-i', str(video), '-map', '0:v:0', '-map', '0:a:0?',
-                     '-vf', "scale='min(1280,iw)':-2", '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+                     '-vf', "scale=w='min(1280,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2", '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-pix_fmt', 'yuv420p',
                      '-c:a', 'aac', '-movflags', '+faststart', '-map_metadata', '-1', str(path / 'preview.mp4')], 600)
         run_command(['ffmpeg', '-v', 'error', '-y', '-i', str(path / 'preview.mp4'), '-frames:v', '1', '-vf', 'scale=360:-2', str(path / 'poster.jpg')], 30)
         return project
@@ -272,6 +287,7 @@ async def upload(file: UploadFile = File(...)):
         shutil.rmtree(path, ignore_errors=True)
         raise
     except Exception as exc:
+        log.exception('Video upload failed')
         shutil.rmtree(path, ignore_errors=True)
         raise HTTPException(422, str(exc) if isinstance(exc, RuntimeError) else 'Videon kunde inte läsas. Prova MP4, MOV eller WebM.')
     finally:

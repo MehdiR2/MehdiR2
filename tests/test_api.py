@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -81,3 +82,41 @@ def test_ass_text_cannot_inject_style_overrides():
     ass=backend.ass_subtitles(p)
     assert r'{\pos' not in ass
     assert '0:00:00.00,0:00:02.00' in ass
+
+def test_upload_finds_installed_media_tools_outside_shell_path(client, monkeypatch):
+    tool_directory = Path(shutil.which('ffmpeg')).parent
+    monkeypatch.setenv('PATH', '')
+    monkeypatch.setattr(backend, 'MEDIA_TOOL_DIRS', (tool_directory,))
+    assert client.get('/api/health').json()['ffmpeg']
+    assert client.get('/api/health').json()['ffprobe']
+    p = upload(client)
+    assert client.get(f'/api/projects/{p["id"]}/media').status_code == 200
+
+def test_missing_media_tools_reports_setup_problem(client, monkeypatch):
+    monkeypatch.setenv('PATH', '')
+    monkeypatch.setattr(backend, 'MEDIA_TOOL_DIRS', ())
+    with DEMO.open('rb') as f:
+        response = client.post('/api/projects', files={'file': ('test.mp4', f, 'video/mp4')})
+    assert response.status_code == 422
+    assert 'Videoverktyget saknas' in response.json()['detail']
+    assert client.get('/api/projects').json() == []
+
+@pytest.mark.parametrize('codec,pixel_format,size', [
+    ('libx264', 'yuv444p', '321x241'),
+    ('libx265', 'yuv420p10le', '320x240'),
+])
+def test_mov_normalizes_to_safari_compatible_video(client, tmp_path, codec, pixel_format, size):
+    source = tmp_path / 'camera.mov'
+    args = ['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', f'testsrc=size={size}:rate=5',
+            '-t', '0.5', '-c:v', codec, '-pix_fmt', pixel_format]
+    if codec == 'libx265':
+        args += ['-x265-params', 'pools=1:frame-threads=1:log-level=error']
+    subprocess.run([*args, str(source)], check=True)
+    with source.open('rb') as f:
+        response = client.post('/api/projects', files={'file': ('camera.MOV', f, 'video/quicktime')})
+    assert response.status_code == 201, response.text
+    preview = backend.STORE / response.json()['id'] / 'preview.mp4'
+    info = json.loads(subprocess.check_output(['ffprobe', '-v', 'error', '-show_streams', '-of', 'json', str(preview)]))
+    stream = next(s for s in info['streams'] if s['codec_type'] == 'video')
+    assert stream['codec_name'] == 'h264' and stream['pix_fmt'] == 'yuv420p'
+    assert stream['width'] % 2 == 0 and stream['height'] % 2 == 0
