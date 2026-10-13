@@ -7,6 +7,15 @@ failed() {
   read -r -p 'Tryck på Retur för att avsluta. ' || true
 }
 trap failed ERR
+# Locate the project even if the launcher was moved into a subfolder.
+while [[ ! -f pyproject.toml || ! -f package.json || ! -f backend/app.py ]]; do
+  if [[ "$PWD" == / ]]; then
+    echo 'Appmappen hittades inte. Lägg startfilen i samma mapp som package.json.'
+    failed
+    exit 1
+  fi
+  cd ..
+done
 if [[ "$(uname -s)" != Darwin ]]; then
   echo 'Den här startfilen är för Mac.'
   exit 1
